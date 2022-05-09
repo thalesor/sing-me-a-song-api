@@ -2,6 +2,7 @@ import  app  from '../src/app.js';
 import { jest } from "@jest/globals";
 import supertest from 'supertest';
 import { prisma } from "../src/database.js";
+import { recommendationSchema } from "../src/schemas/recommendationsSchemas";
 import { recommendationBodyFactory } from "./factories/recommendationBodyFactory";
 import recommendationFactory from "./factories/recommendationFactory";
 
@@ -33,7 +34,6 @@ describe("GET recommendations/random", () => {
 
     expect(status).toBe(200);
     expect(data).not.toBe(null);
-    expect(data).toHaveProperty('youtubeLink');
   });
 
 });
@@ -73,19 +73,7 @@ describe("GET recommendations/:id", () => {
     
     expect(status).toBe(200);
     expect(data).not.toBe(null);
-    expect(data).toHaveProperty('youtubeLink');
   });
-
-  it("it should return an empty object when getting from an inexistent id, and should return also status 200", async () => {
-    const recommendation = recommendationBodyFactory(1);
-    await recommendationFactory(recommendation);
-    const { body: data, status } = await supertest(app).get("/recommendations/1000");
-    
-    expect(status).toBe(200);
-    expect(data).not.toBe(null);
-    expect(data).toEqual({});
-  });
-
 });
 
 
@@ -105,10 +93,9 @@ describe("POST recommendations/", () => {
     
     expect(status).toEqual(201);
     expect(recommendation).not.toBeNull();
-    expect(recommendation).toHaveProperty('youtubeLink');
   });
   
-  it("it should not persist the same recommendation twice and should also return status code 500", async () => {
+  it("it should not persist the same recommendation twice and should also return status code 409", async () => {
     const recommendationBody = recommendationBodyFactory(1);
     const { status: status1 } = await supertest(app).post(`/recommendations/`).send(recommendationBody[0]);
     jest.spyOn(global.console,'log').mockReturnValueOnce(null);
@@ -120,15 +107,17 @@ describe("POST recommendations/", () => {
     });
     
     expect(status1).toEqual(201);
-    expect(status2).toEqual(500);
+    expect(status2).toEqual(409);
     expect(recommendation).toBeNull();
 
   });
-
-  it("it should not persist a recommendation if missing body data and should also return throw error", async () => {
+  
+  it("it should not persist a recommendation if missing body data and should also return status code 422", async () => {
     const recommendationBody = recommendationBodyFactory(1);
     jest.spyOn(global.console,'log').mockReturnValueOnce(null);
+
     const { status } = await supertest(app).post(`/recommendations/`);
+
     const recommendation = await prisma.recommendation.findUnique({
       where: {
         id: 1
@@ -139,6 +128,39 @@ describe("POST recommendations/", () => {
     expect(recommendation).toBeNull();
   });
 
+  it("it should not persist a recommendation if invalid body data and should also return status code 500", async () => {
+    jest.spyOn(recommendationSchema,'validate').mockReturnValueOnce(null);
+    const { status } = await supertest(app).post(`/recommendations/`);
+
+    const recommendation = await prisma.recommendation.findUnique({
+      where: {
+        id: 1
+      }
+    });
+    
+    expect(status).toEqual(500);
+    expect(recommendation).toBeNull();
+  });
+
+  it("tried to force status 400 but it seems impossible", async () => {
+    jest.mock('../src/middlewares/errorHandlerMiddleware.js', () => jest.fn((req, res, next) =>
+    {
+      return res.sendStatus(400);
+    }
+    ));
+
+    const { status } = await supertest(app).post(`/recommendations/`);
+
+    const recommendation = await prisma.recommendation.findUnique({
+      where: {
+        id: 1
+      }
+    });
+    
+    expect(status).toEqual(400);
+    expect(recommendation).toBeNull();
+  });
+  
 });
 
 
